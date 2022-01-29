@@ -48,10 +48,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Set up the listener for take photo button
-        camera_capture_button.setOnClickListener { takePhoto() }
+            // camera_capture_button.setOnClickListener { takePhoto() }
 
         outputDirectory = getOutputDirectory()
 
+        //?????
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
@@ -103,18 +104,27 @@ class MainActivity : AppCompatActivity() {
 
     //***** The code is added while learning from codelab
     private fun startCamera() {
-        // our camerax is lifecycle aware, but we need to bind instance of our camera app(derived by camerax)
-        // process with the lifecycle owner of the Activity in the context.
-        //For any app one process is in the work in Android System and and for a process only one
-        //process camera provider exists. Using ProcessCameraProvider.getInstance(this) we can get
-        //an instance of that camera provider for the process/app which can be used to bind with a
-        //lifeCycleOwner, generally the current context which can be referred using this.
+        // our camerax is lifecycle aware because of which we don't need to open/close camera when Activity gets created and destroyed.
+        // ProcessCameraProvider does that on behalf of us.
+        // , but we need to bind instance of our camera provider (derived by camerax)
+        // for our process/app with the lifecycle owner of the Activity in the context.
+        // For any app one process is in the work in Android System and and for a process only one
+        // 'process camera provider' exists. Using ProcessCameraProvider.getInstance(this) we can get
+        // an instance of that camera provider for the process/app which can be used to bind with a
+        // lifeCycleOwner, generally the current context which can be referred using this.
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         //The Runnable interface should
         // be implemented by any class whose
         // instances are intended to be executed
         // by a thread.
+
+        // Why a thread is being used here? Why can't the main thread or the process thread will do the work?
+        // Probable Answer: In this case one main thread, i.e, process thread is working which has many responsibilities like
+        // memory management, staying intact with hardware and sensors to keep them alive and then to bring input data that
+        // are being stored in CPU Accessible buffers and much more. And then we want to perform another task of capturing
+        // image from the stream of previews and of saving the image. This is quite a task. So we introduce a thread here using
+        // Runnable.
         cameraProviderFuture.addListener(Runnable {
             // Used to bind the lifecycle of cameras to the lifecycle owner
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
