@@ -12,7 +12,6 @@ import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import com.example.learningcamerax.R
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.nio.ByteBuffer
@@ -27,6 +26,10 @@ class MainActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
 
     private lateinit var outputDirectory: File
+
+    //AT the end we should shut down camera executor when the Activity is being destroyed to clean the resources
+    //so that other app can use the cam hardware resource.
+
     private lateinit var cameraExecutor: ExecutorService
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,8 +51,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Set up the listener for take photo button
-            // camera_capture_button.setOnClickListener { takePhoto() }
-
+        camera_capture_button.setOnClickListener { takePhoto() }
+        //???
         outputDirectory = getOutputDirectory()
 
         //?????
@@ -57,7 +60,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
+        //
+        // Get a stable reference of the modifiable image capture use case.
         val imageCapture = imageCapture ?: return
 
         // Create time-stamped output file to hold the image. This creates a
@@ -84,7 +88,7 @@ class MainActivity : AppCompatActivity() {
             outputOptions,
             ContextCompat.getMainExecutor(this),
             //In the case that the image capture fails or saving the image capture fails,
-            // adding an error case to log that it failed
+            // we are adding an error case to log that it failed
             object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exc: ImageCaptureException) {
                     Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
@@ -104,10 +108,13 @@ class MainActivity : AppCompatActivity() {
 
     //***** The code is added while learning from codelab
     private fun startCamera() {
-        // our camerax is lifecycle aware because of which we don't need to open/close camera when Activity gets created and destroyed.
+        // our camerax is lifecycle aware because of which we don't need to write to open/close camera in onStart(),onPause(),onCreate(),
+        // when Activity's orientation and configuration changes.
+
         // ProcessCameraProvider does that on behalf of us.
         // , but we need to bind instance of our camera provider (derived by camerax)
         // for our process/app with the lifecycle owner of the Activity in the context.
+
         // For any app one process is in the work in Android System and and for a process only one
         // 'process camera provider' exists. Using ProcessCameraProvider.getInstance(this) we can get
         // an instance of that camera provider for the process/app which can be used to bind with a
@@ -125,8 +132,13 @@ class MainActivity : AppCompatActivity() {
         // are being stored in CPU Accessible buffers and much more. And then we want to perform another task of capturing
         // image from the stream of previews and of saving the image. This is quite a task. So we introduce a thread here using
         // Runnable.
+
+        // ???????? Why after executing the following line, execution gets paused and after executing all the lines of onCreate()
+        // it comes back to execute rest of the lines??????????????
+        //cameraProviderFuture.addListener(listener:Runnable!,executor:Executor!)
         cameraProviderFuture.addListener(Runnable {
             // Used to bind the lifecycle of cameras to the lifecycle owner
+            //A Future represents the result of an asynchronous computation.
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
             // Preview: Initialize your Preview object,
@@ -135,9 +147,18 @@ class MainActivity : AppCompatActivity() {
             val preview = Preview.Builder()
                 .build()
                 .also {
+                    //The preview use case interacts with a Surface for display.
                     it.setSurfaceProvider(viewFinder.surfaceProvider)
                 }
             imageCapture = ImageCapture.Builder().build()
+
+            val imageAnalyzer = ImageAnalysis.Builder()
+                .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
+                        Log.d("TAG", "Average Luminosity: $luma")
+                    })
+                }
 
             // Select back camera as a default
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -147,9 +168,14 @@ class MainActivity : AppCompatActivity() {
                 // camerax which is opened now and will initiate close on all the opened cameras.
                 cameraProvider.unbindAll()
 
-                // Bind use cases to camera
+
+                //Instead of an application placing specific start and stop method calls in onResume() and onPause(),
+                // the application specifies a lifecycle to associate the camera with, using cameraProvider.bindToLifecycle().
+                // That lifecycle then informs CameraX when to configure the camera capture session and ensures camera state
+                // changes appropriately to match lifecycle transitions.
+                // Also Binds use cases to camera.
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture
+                    this, cameraSelector, preview, imageCapture, imageAnalyzer
                 )
 
             } catch (exc: Exception) {
@@ -160,13 +186,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+        //ContextCompat: helper for accessing features in context.
+        //checkSelfPermission(context,string) is a method under ContextCompat.
         ContextCompat.checkSelfPermission(
             baseContext, it
+            //PackageManager: is a class for retrieving various kinds of information related to the app/application package.
+            // internally PERMISSION_GRANTED calls checkPermission() that returns permission result.
         ) == PackageManager.PERMISSION_GRANTED
 
     }
 
-    //*********code is added while learning from codelab. This is a call back method which is
+    // This is a call back method which is
     // called as a result of ActivityCompat.requestPermissions getting called.
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -208,4 +238,28 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
     }
+
+    //inner class which contains the code for analyzing luminosity of the image frame coming in memory.
+    private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnalysis.Analyzer {
+
+        private fun ByteBuffer.toByteArray(): ByteArray {
+            rewind()    // Rewind the buffer to zero
+            val data = ByteArray(remaining())
+            get(data)   // Copy the buffer into a byte array
+            return data // Return the byte array
+        }
+
+        override fun analyze(image: ImageProxy) {
+
+            val buffer = image.planes[0].buffer
+            val data = buffer.toByteArray()
+            val pixels = data.map { it.toInt() and 0xFF }
+            val luma = pixels.average()
+
+            listener(luma)
+
+            image.close()
+        }
+    }
+
 }
