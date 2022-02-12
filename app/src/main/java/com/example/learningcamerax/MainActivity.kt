@@ -22,8 +22,13 @@ import java.util.concurrent.ExecutorService
 typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity() {
+
     // A reference for the ImageCapture use case.
     private var imageCapture: ImageCapture? = null
+    private var defaultCamBack: Boolean = true
+    private var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    private var flashOff: Boolean = true
+    private var flashModeValue: Int = 0
 
     private lateinit var outputDirectory: File
 
@@ -52,6 +57,31 @@ class MainActivity : AppCompatActivity() {
 
         // Set up the listener for take photo button
         camera_capture_button.setOnClickListener { takePhoto() }
+        camSwitch.setOnClickListener {
+            defaultCamBack = !defaultCamBack
+            startCamera()
+            Log.i("TAG1", "flashV: $flashModeValue flash: $flashOff")
+        }
+        flashSw.setOnClickListener {
+            flashOff = !flashOff
+            /* flashModeValue =
+                 if (flashOff) ImageCapture.FLASH_MODE_OFF else ImageCapture.FLASH_MODE_ON
+             startCamera()*/
+            if (flashOff){
+                //defaultCamBack = !defaultCamBack
+                flashModeValue = ImageCapture.FLASH_MODE_OFF
+                startCamera()
+                Log.i("TAG1", "flashV: $flashModeValue flash: $flashOff")
+
+            }else{
+
+                defaultCamBack = true
+                flashModeValue = ImageCapture.FLASH_MODE_ON
+                startCamera()
+                Log.i("TAG1", "flashV: $flashModeValue flash: $flashOff")
+
+            }
+        }
         //???
         outputDirectory = getOutputDirectory()
 
@@ -83,7 +113,7 @@ class MainActivity : AppCompatActivity() {
         // Set up image capture listener, which is triggered after photo has
         // been taken.
         //Calling takePicture() on the imageCapture object and
-        // Passing in outputOptions, the executor, and a callback for when the image is saved
+        // Passing in outputOptions, the executor, and a callback for when the image is saved or failed.
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),
@@ -150,18 +180,31 @@ class MainActivity : AppCompatActivity() {
                     //The preview use case interacts with a Surface for display.
                     it.setSurfaceProvider(viewFinder.surfaceProvider)
                 }
-            imageCapture = ImageCapture.Builder().build()
+            imageCapture = ImageCapture.Builder()
+                .setFlashMode(flashModeValue)
+                .build()
 
             val imageAnalyzer = ImageAnalysis.Builder()
                 .build()
                 .also {
+                    // we are calling a function LuminosityAnalyzer which takes a lambda function as a parameter, here the
+                    // definition of the method LuminosityAnalyzer is using a typealias for the lambda function (luma:Double)->Unit
+                    // How the following lines are getting executed?
+                    // Actually LuminosityAnalyzer { luma -> Log.d("TAG", "Average Luminosity: $luma") } is like
+                    // LuminosityAnalyzer ({ luma -> Log.d("TAG", "Average Luminosity: $luma") }). Value of luma is being assigned in the
+                    // method LuminosityAnalyzer.
+                    // Understand with this example: if a function is structured as below:
+                    //fun walk1To(n: Int, action: (Int) -> Unit) =(1..n).forEach { action(it) }
+                    //then, walk1To(5) {i-> print(i) } prints: 1,2,3,4,5.
                     it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
                         Log.d("TAG", "Average Luminosity: $luma")
                     })
                 }
 
-            // Select back camera as a default
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            // code for cam selection
+            cameraSelector = if (!defaultCamBack) CameraSelector.DEFAULT_FRONT_CAMERA
+            else CameraSelector.DEFAULT_BACK_CAMERA
+
 
             try {
                 // Unbind use cases before rebinding. This will unbind all the use cases from any
@@ -234,12 +277,14 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "CameraXBasic"
+        private const val TAG1 = "CameraXBasic"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
     }
 
     //inner class which contains the code for analyzing luminosity of the image frame coming in memory.
+    //LumaListener is a typealias for a lambda function (luma:Double)->Unit
     private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnalysis.Analyzer {
 
         private fun ByteBuffer.toByteArray(): ByteArray {
